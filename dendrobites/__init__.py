@@ -7,12 +7,13 @@ import collections
 from dendropy import homedir
 
 version_info = collections.namedtuple("dendrobites_version_info",
-        ["major", "minor", "micro", "releaselevel"])(
-                major=0,
-                minor=0,
-                micro=0,
-                releaselevel="a"
-                )
+                                      ["major",
+                                       "minor",
+                                       "micro",
+                                       "releaselevel"])(major=0,
+                                                        minor=0,
+                                                        micro=0,
+                                                        releaselevel="a")
 __project__ = "DendroBites"
 __version__ = ".".join(str(s) for s in version_info[:4] if s != "")
 __author__ = "Jeet Sukumaran and Mark T. Holder"
@@ -47,7 +48,7 @@ def description(dest=None):
     fields["Python version"] = sys.version.replace("\n", "")
     fields["Python executable"] = sys.executable
     try:
-        fields["Python site packages"] = site.getsitepackages()
+        fields["Python site packages"] = site.getsitepackages() #pylint: disable=E1103
     except:
         pass
     max_fieldname_len = max(len(fieldname) for fieldname in fields)

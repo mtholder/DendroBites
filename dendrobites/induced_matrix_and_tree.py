@@ -1,5 +1,5 @@
 #!/usr/bin/env python
-'''Using dendropy to prune a tree to an induced tree and 
+'''Using dendropy to prune a tree to an induced tree and
 prune the same set of removed taxa from a data matrix.
 '''
 from dendropy import Tree
@@ -46,13 +46,13 @@ def induced_matrix_and_tree(char_mat_filepath,
                                           tree_schema=tree_schema)
     taxa_labels = frozenset(taxa_labels)
     if not tree.taxon_namespace.has_taxa_labels(taxa_labels):
-      for t in taxa_labels:
-          if not tree.taxon_namespace.has_taxon_label(t):
-              raise ValueError('Taxon "{}" not found in the taxon namespace of this data.\n'.format(t))
+        for t in taxa_labels:
+            if not tree.taxon_namespace.has_taxon_label(t):
+                raise ValueError('Taxon "{}" not found in the taxon namespace of this data.\n'.format(t))
     to_cull = []
     for t in tree.taxon_namespace:
         if t.label not in taxa_labels:
-          to_cull.append(t)
+            to_cull.append(t)
     if to_cull:
         tree.prune_taxa(to_cull)
         if char_mat:
@@ -68,14 +68,13 @@ def _main(char_mat_filepath,
           tree_filepath,
           taxa_labels,
           data_type_name,
-          char_schema = 'fasta',
-          tree_schema = 'newick'):
-    
+          char_schema='fasta',
+          tree_schema='newick'):
     # Validate the data_type argument and use it to find the CharacterMatrix type
     dt = data_type_name.lower()
     mat_type = data_type_matrix_map.get(dt)
     if mat_type is None:
-        emf ='The data type "{u}" is not recognized.\nExpecting one of "{t}".\n'
+        emf = 'The data type "{u}" is not recognized.\nExpecting one of "{t}".\n'
         k = data_type_matrix_map.keys()
         k.sort()
         raise ValueError(emf.format(u=data_type_name, t='", "'.join(k)))
