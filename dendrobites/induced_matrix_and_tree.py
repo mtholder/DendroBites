@@ -20,12 +20,6 @@ def read_matrix_and_tree(char_file_path,
                     schema=tree_schema,
                     preserve_underscores=True,
                     taxon_namespace=tn)
-    treed_taxa = [i.taxon for i in tree.leaf_nodes()]
-    if len(treed_taxa) != len(d.taxon_namespace):
-        missing = [i.label for i in d.taxon_namespace if i not in treed_taxa]
-        emf = 'Some of the taxa are not in the tree. Missing "{}"\n'
-        em = emf.format('", "'.join(missing))
-        raise ValueError(em)
     return d, tree
 
 def induced_matrix_and_tree(char_mat_filepath,
