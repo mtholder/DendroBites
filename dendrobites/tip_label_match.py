@@ -75,7 +75,7 @@ def _main(char_mat_filepath,
     # read the char matrix and tree....
     match_check = tip_label_match(char_mat_filepath,
                     tree_filepath,
-                    char_type=data_type_name,
+                    char_type=mat_type,
                     char_schema=char_schema,
                     tree_schema=tree_schema)
     if match_check:
@@ -95,7 +95,7 @@ if __name__ == '__main__':
     parser.add_argument('--tree', default=None, type=str, required=True, help='filepath of the tree')
     parser.add_argument('--char-schema', default="fasta", type=str, required=False, help='schema for the character data')
     parser.add_argument('--tree-schema', default="newick", type=str, required=False, help='schema for the tree')
-    parser.add_argument('--data-type', default='dna', type=str, required=False, help='a data_type. Default is "dna"') #This doesn't actaully do anything...
+    parser.add_argument('--data-type', default='dna', type=str, required=False, help='a data_type. Default is "dna"')
     args = parser.parse_args(sys.argv[1:])
     try:
         _main(args.char, args.tree, args.data_type, args.char_schema, args.tree_schema)
