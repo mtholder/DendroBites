@@ -93,13 +93,9 @@ def is_gapless_constant(column):
             return False
     return True
 
-def count_both_gaps_comparisons(column):
+def count_gap_cells(column):
     gapped_inds = [i for i, c in enumerate(column) if c.is_gap_state]
-    num_gapped = len(gapped_inds)
-    if num_gapped < 2:
-        return 0
-    # n choose 2 is the number of comparisons
-    return ((num_gapped - 1)*num_gapped)/2
+    return len(gapped_inds)
 
 def _main(char_mat_filepath,
           data_type_name,
@@ -116,10 +112,10 @@ def _main(char_mat_filepath,
     # read the char matrix 
     char_mat = mat_type.get(path=char_mat_filepath, schema=schema)
     num_taxa = len(char_mat)
-    num_comps_with_both_gapped = 0
+    num_const_gapless = 0
     columns_to_include = set()
     const_col_type2ind_set = {}
-    num_const_gapless = 0
+    num_gap_cells = 0
     for col_ind, column in enumerate(iter_columns(char_mat)):
         if is_gapless_constant(column):
             symbol = column[0].symbol
@@ -130,14 +126,11 @@ def _main(char_mat_filepath,
             ind_set.add(col_ind)
             num_const_gapless += 1
         else:
-            inap = count_both_gaps_comparisons(column)
-            num_comps_with_both_gapped += inap
+            num_gap_cells += count_gap_cells(column)
         columns_to_include.add(col_ind)
     num_cols = len(columns_to_include)
-    total_num_comp = (num_taxa*(num_taxa - 1))/2
-    sum_pairwise_align_lens = num_cols*total_num_comp
-    sum_pairwise_align_lens -= num_comps_with_both_gapped
-    est_equil_len = sum_pairwise_align_lens/float(total_num_comp)
+    num_non_gapped = num_cols*num_taxa - num_gap_cells
+    est_equil_len = num_non_gapped/float(num_taxa)
     est_num_inv_columns = p_inv*est_equil_len
     invariant_frac = est_num_inv_columns/float(num_const_gapless)
     ideal_num_to_cull = int(round(est_num_inv_columns))
