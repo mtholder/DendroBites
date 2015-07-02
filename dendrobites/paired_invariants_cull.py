@@ -104,7 +104,7 @@ def count_both_gaps_comparisons(column):
 def _main(char_mat_filepath,
           data_type_name,
           p_inv,
-          char_schema='nexus'):
+          schema='nexus'):
     # Validate the data_type argument and use it to find the CharacterMatrix type
     dt = data_type_name.lower()
     mat_type = data_type_matrix_map.get(dt)
@@ -114,7 +114,7 @@ def _main(char_mat_filepath,
         k.sort()
         raise ValueError(emf.format(u=data_type_name, t='", "'.join(k)))
     # read the char matrix 
-    char_mat = mat_type.get(path=char_mat_filepath, schema=char_schema)
+    char_mat = mat_type.get(path=char_mat_filepath, schema=schema)
     num_taxa = len(char_mat)
     num_comps_with_both_gapped = 0
     columns_to_include = set()
@@ -140,9 +140,33 @@ def _main(char_mat_filepath,
     est_equil_len = sum_pairwise_align_lens/float(total_num_comp)
     est_num_inv_columns = p_inv*est_equil_len
     invariant_frac = est_num_inv_columns/float(num_const_gapless)
-    total_to_cull = set()
+    ideal_num_to_cull = int(round(est_num_inv_columns))
+    num_to_cull_by_state = {}
+    num_left_to_cull = ideal_num_to_cull
     for state, col_ind_for_this_state in const_col_type2ind_set.items():
         num_to_cull_for_this_state = int(round(invariant_frac*len(col_ind_for_this_state)))
+        num_to_cull_for_this_state = min(len(col_ind_for_this_state), num_to_cull_for_this_state)
+        num_to_cull_for_this_state = min(num_to_cull_for_this_state, num_left_to_cull)
+        num_left_to_cull -= num_to_cull_for_this_state
+        num_to_cull_by_state[state] = (num_to_cull_for_this_state, len(col_ind_for_this_state))
+    # Deal with rounding error
+    if num_left_to_cull > 0:
+        sym_list = num_to_cull_by_state.keys()
+        sym_list.sort()
+        for state in sym_list:
+            tc, tot = num_to_cull_by_state[state]
+            ntc = min(tc + num_left_to_cull, tot)
+            if ntc != tc:
+                num_added = ntc - tc
+                num_to_cull_by_state[state] = (ntc, tc)
+                num_left_to_cull -= num_added
+                if num_left_to_cull == 0:
+                    break
+
+
+    total_to_cull = set()
+    for state, col_ind_for_this_state in const_col_type2ind_set.items():
+        num_to_cull_for_this_state = num_to_cull_by_state[state][0]
         to_cull = set()
         for ind in col_ind_for_this_state:
             if len(to_cull) < num_to_cull_for_this_state:
@@ -156,7 +180,7 @@ def _main(char_mat_filepath,
     retained = char_mat.export_character_subset(character_subset=label)
     # need to remove the char subset because they are not being re-indexed.
     del retained.character_subsets[label]
-    retained.write_to_stream(sys.stdout, schema=char_schema)
+    retained.write_to_stream(sys.stdout, schema=schema)
 
 
 if __name__ == '__main__':
@@ -167,6 +191,7 @@ if __name__ == '__main__':
     description = '''Subsample constant, gapless columns as if they were generated under the paired-invariants model.'''
     parser = argparse.ArgumentParser(prog=script_name, description=description)
     parser.add_argument('--data-type', default='dna', type=str, required=False, help='a data_type. Default is "dna"')
+    parser.add_argument('--schema', default='nexus', type=str, required=False, help='A file format name. Default is "nexus"')
     parser.add_argument('datafile', default=None, nargs=1, help='filepath of the character data')
     parser.add_argument('--p-inv', required=True, type=float, help='A proportion of invariant sites for the paired-invariants model')
     args = parser.parse_args(sys.argv[1:])
@@ -174,7 +199,7 @@ if __name__ == '__main__':
         assert args.p_inv > 0.0
         assert args.p_inv < 1.0
         assert len(args.datafile) == 1
-        _main(args.datafile[0], args.data_type, p_inv=args.p_inv)
+        _main(args.datafile[0], args.data_type, schema=args.schema, p_inv=args.p_inv)
     except Exception as x:
         raise
         sys.exit('{}: {}\n'.format(script_name, str(x)))
