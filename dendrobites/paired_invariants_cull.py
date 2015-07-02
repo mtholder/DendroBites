@@ -67,6 +67,40 @@ def get_path_with_prefix(template, filename_prefix):
     ocfn = filename_prefix + fn
     return os.path.join(directory, ocfn)
 
+
+def iter_columns(char_mat, taxa_order=None):
+    if taxa_order is None:
+        taxa_order = [i for i in char_mat]
+    full_rows = [char_mat[i] for i in taxa_order]
+    nc = len(full_rows[0])
+
+    for row in full_rows:
+        if len(row) != nc:
+            raise ValueError('iter_columns requires aligned matrices.')
+    for i in xrange(nc):
+        column = []
+        for row in full_rows:
+            column.append(row[i])
+        yield column
+def is_gapless_constant(column):
+    first_sym = None
+    for cell in column:
+        if cell.is_gap_state:
+            return False
+        if first_sym is None:
+            first_sym = cell.symbol
+        elif cell.symbol != first_sym:
+            return False
+    return True
+
+def count_both_gaps_comparisons(column):
+    gapped_inds = [i for i, c in enumerate(column) if c.is_gap_state]
+    num_gapped = len(gapped_inds)
+    if num_gapped < 2:
+        return 0
+    # n choose 2 is the number of comparisons
+    return ((num_gapped - 1)*num_gapped)/2
+
 def _main(char_mat_filepath,
           data_type_name,
           p_inv,
@@ -81,6 +115,48 @@ def _main(char_mat_filepath,
         raise ValueError(emf.format(u=data_type_name, t='", "'.join(k)))
     # read the char matrix 
     char_mat = mat_type.get(path=char_mat_filepath, schema=char_schema)
+    num_taxa = len(char_mat)
+    num_comps_with_both_gapped = 0
+    columns_to_include = set()
+    const_col_type2ind_set = {}
+    num_const_gapless = 0
+    for col_ind, column in enumerate(iter_columns(char_mat)):
+        if is_gapless_constant(column):
+            symbol = column[0].symbol
+            ind_set = const_col_type2ind_set.get(symbol)
+            if ind_set is None:
+                ind_set = set()
+                const_col_type2ind_set[symbol] = ind_set
+            ind_set.add(col_ind)
+            num_const_gapless += 1
+        else:
+            inap = count_both_gaps_comparisons(column)
+            num_comps_with_both_gapped += inap
+        columns_to_include.add(col_ind)
+    num_cols = len(columns_to_include)
+    total_num_comp = (num_taxa*(num_taxa - 1))/2
+    sum_pairwise_align_lens = num_cols*total_num_comp
+    sum_pairwise_align_lens -= num_comps_with_both_gapped
+    est_equil_len = sum_pairwise_align_lens/float(total_num_comp)
+    est_num_inv_columns = p_inv*est_equil_len
+    invariant_frac = est_num_inv_columns/float(num_const_gapless)
+    total_to_cull = set()
+    for state, col_ind_for_this_state in const_col_type2ind_set.items():
+        num_to_cull_for_this_state = int(round(invariant_frac*len(col_ind_for_this_state)))
+        to_cull = set()
+        for ind in col_ind_for_this_state:
+            if len(to_cull) < num_to_cull_for_this_state:
+                to_cull.add(ind)
+            else:
+                break
+        total_to_cull.update(to_cull)
+    columns_to_include.difference_update(total_to_cull)
+    label='to_retain'
+    char_mat.new_character_subset(label=label, character_indices=columns_to_include)
+    retained = char_mat.export_character_subset(character_subset=label)
+    # need to remove the char subset because they are not being re-indexed.
+    del retained.character_subsets[label]
+    retained.write_to_stream(sys.stdout, schema=char_schema)
 
 
 if __name__ == '__main__':
