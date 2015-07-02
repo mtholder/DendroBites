@@ -1,6 +1,6 @@
 DendroBites
 
-Copyright (c) 2015 Jeet Sukumaran and Mark T. Holder.
+Copyright (c) 2015 Jeet Sukumaran, Mark T. Holder, and Emily Jane McTavish.
 All rights reserved.
 
 Redistribution and use in source and binary forms, with or without
