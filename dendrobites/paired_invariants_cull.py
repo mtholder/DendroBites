@@ -1,10 +1,7 @@
 #!/usr/bin/env python
 '''Read in a matrix and a proportion of invariant sites.
-For each pair of taxa calculate a pairwise alignment length
-    (this is simply the total alignment length minus the
-     number of columns for which both members of the pair
-     have gaps).
-Use the average pairwise alignment length as an estimator
+
+Uses the average pairwise sequence length as an estimator
     of the equilibrium length of sequences evolving under the
     paired-invariants model of McTavish, Steel, Holder
     http://de.arxiv.org/abs/1504.07124
@@ -14,18 +11,32 @@ Given the proportion of invariant sites (command line argument)
     the proportion of gapless, constant columns that are in
     the invariant class. Call this `p_r`
 
-Finally, walk through the matrix and identify all of the constant
-    gapless patterns. For each one, retain it with a probability of
-    1 - p_r
+Retain approximately (1 - p_r) of constant, gapless columns. This
+    is approximate because, if the number of input constant, gapless
+    columns is C then the proportions attainable exactly by deletion
+    are 1/C, 2/C, ... (C-1)/C, 1.0
 
-Write the resulting matrix out. If the data were simulated under
-    the paired-invariants model, and the sequences are long enough,
-    then the equilibrium length should be estimated accurately.
-    If the command-line argument for the generating p_invariant is
-    correct, then p_r should be accurately estimated. In this case (of
-    no model misspecification), MTH conjectures that the resulting
-    matrix should be yield a consistent matrix of the tree under a
-    distance correction that uses no rate heterogeneity.
+The script attempts to cull the columns in proportion to the frequency
+    of the states among the constant gapless columns so that it
+    will distort the state frequencies of these columns as little as
+    possible.
+
+Write the resulting matrix out in the same schema as the input data.
+
+If :
+  1. the data were simulated under the paired-invariants model, 
+  2. the sequences are long enough, and
+  3. the --p-inv argument accurately provides the proportion of
+    invariant sites
+then
+  1. the equilibrium length should be estimated accurately,
+  2. the matrix written out should be a reasonable proxy for the
+    free-to-vary subset of the matrix
+  3. MTH conjectures that preprocessing of matrices and analyzing the
+    resulting matrices should provide a consistent estimate of
+    phylogeny and branch lengths (provided that the substitution
+    model and original tree correspond to a model that yields 
+    consistent estimates).
 '''
 from dendropy.datamodel.charmatrixmodel import data_type_matrix_map, \
                                                DnaCharacterMatrix
@@ -62,18 +73,15 @@ def induced_matrix_and_tree(char_mat_filepath,
             char_mat.remove_sequences(to_cull)
     return char_mat, tree
 
-def get_path_with_prefix(template, filename_prefix):
-    directory, fn = os.path.split(os.path.abspath(template))
-    ocfn = filename_prefix + fn
-    return os.path.join(directory, ocfn)
-
-
 def iter_columns(char_mat, taxa_order=None):
+    '''Iterates through the columns of a `char_mat`. Returning 
+    the cells in a list with the order determined by
+    `taxa_order` iterable (or the order of taxa in the char_mat if `None`)
+    '''
     if taxa_order is None:
         taxa_order = [i for i in char_mat]
     full_rows = [char_mat[i] for i in taxa_order]
     nc = len(full_rows[0])
-
     for row in full_rows:
         if len(row) != nc:
             raise ValueError('iter_columns requires aligned matrices.')
@@ -82,7 +90,11 @@ def iter_columns(char_mat, taxa_order=None):
         for row in full_rows:
             column.append(row[i])
         yield column
+
 def is_gapless_constant(column):
+    '''Takes and iterable of States. Returns `True` if there are
+    no gaps, and the same symbol is used by every element in `column`.
+    '''
     first_sym = None
     for cell in column:
         if cell.is_gap_state:
@@ -94,26 +106,22 @@ def is_gapless_constant(column):
     return True
 
 def count_gap_cells(column):
-    gapped_inds = [i for i, c in enumerate(column) if c.is_gap_state]
-    return len(gapped_inds)
+    '''Returns the number of cells in `column` for which is_gap_state is `True`'''
+    x = 0
+    for c in column:
+        if c.is_gap_state:
+            x += 1
+    return x
 
-def _main(char_mat_filepath,
-          data_type_name,
-          p_inv,
-          schema='nexus'):
-    # Validate the data_type argument and use it to find the CharacterMatrix type
-    dt = data_type_name.lower()
-    mat_type = data_type_matrix_map.get(dt)
-    if mat_type is None:
-        emf = 'The data type "{u}" is not recognized.\nExpecting one of "{t}".\n'
-        k = data_type_matrix_map.keys()
-        k.sort()
-        raise ValueError(emf.format(u=data_type_name, t='", "'.join(k)))
-    # read the char matrix 
-    char_mat = mat_type.get(path=char_mat_filepath, schema=schema)
-    num_taxa = len(char_mat)
-    num_const_gapless = 0
-    columns_to_include = set()
+def characterize_mat_wrt_const_gapless(char_mat):
+    '''Walks through `char_mat`
+    returns:
+       1. the total # of columns,
+       2. the number of cells that are gaps
+       3. a map of a state symbol to the set of column indices for
+        the columns that are constant (and gapless) for that symbol.
+    '''
+    n_col = 0
     const_col_type2ind_set = {}
     num_gap_cells = 0
     for col_ind, column in enumerate(iter_columns(char_mat)):
@@ -124,19 +132,33 @@ def _main(char_mat_filepath,
                 ind_set = set()
                 const_col_type2ind_set[symbol] = ind_set
             ind_set.add(col_ind)
-            num_const_gapless += 1
         else:
             num_gap_cells += count_gap_cells(column)
-        columns_to_include.add(col_ind)
-    num_cols = len(columns_to_include)
-    num_non_gapped = num_cols*num_taxa - num_gap_cells
-    est_equil_len = num_non_gapped/float(num_taxa)
-    est_num_inv_columns = p_inv*est_equil_len
-    invariant_frac = est_num_inv_columns/float(num_const_gapless)
-    ideal_num_to_cull = int(round(est_num_inv_columns))
+        n_col = 1 + col_ind
+    return (n_col, num_gap_cells, const_col_type2ind_set)
+
+def calc_num_to_cull_by_state(num_inv_columns, symbol2ind_set):
+    '''Takes `symbol2ind_set` which maps state symbols to iterable
+    collections of indices that are a partition of the full set of indices.
+
+    Returns a mapping of these symbols to a pair of
+        1. the # of items to remove from this state
+        2. the total number of items for this state on input.
+
+    The numbers to remove for each set of indices are chosen such that:
+            1. the total number of times removed is as close to `num_inv_column`
+                as feasible, and 
+            2. the # of indices removed for a state is proportional to relative
+                size of the input index set for that state (the proportions of the
+                the states post-pruning will be close to the original proportion of
+                symbols).
+    '''
+    num_const_gapless = sum([len(v) for v in symbol2ind_set.values()])
+    invariant_frac = num_inv_columns/float(num_const_gapless)
+    ideal_num_to_cull = int(round(num_inv_columns))
     num_to_cull_by_state = {}
     num_left_to_cull = ideal_num_to_cull
-    for state, col_ind_for_this_state in const_col_type2ind_set.items():
+    for state, col_ind_for_this_state in symbol2ind_set.items():
         num_to_cull_for_this_state = int(round(invariant_frac*len(col_ind_for_this_state)))
         num_to_cull_for_this_state = min(len(col_ind_for_this_state), num_to_cull_for_this_state)
         num_to_cull_for_this_state = min(num_to_cull_for_this_state, num_left_to_cull)
@@ -155,10 +177,11 @@ def _main(char_mat_filepath,
                 num_left_to_cull -= num_added
                 if num_left_to_cull == 0:
                     break
+    return num_to_cull_by_state
 
-
+def create_inds_to_cull_from_numbers_to_cull(symbol2ind_set, num_to_cull_by_state):
     total_to_cull = set()
-    for state, col_ind_for_this_state in const_col_type2ind_set.items():
+    for state, col_ind_for_this_state in symbol2ind_set.items():
         num_to_cull_for_this_state = num_to_cull_by_state[state][0]
         to_cull = set()
         for ind in col_ind_for_this_state:
@@ -167,14 +190,53 @@ def _main(char_mat_filepath,
             else:
                 break
         total_to_cull.update(to_cull)
-    columns_to_include.difference_update(total_to_cull)
-    label='to_retain'
-    char_mat.new_character_subset(label=label, character_indices=columns_to_include)
+    return total_to_cull
+
+def calc_inds_to_cull(num_inv_columns, const_col_type2ind_set):
+    num_to_cull_by_state = calc_num_to_cull_by_state(num_inv_columns=num_inv_columns,
+                                                     symbol2ind_set=const_col_type2ind_set)
+    return create_inds_to_cull_from_numbers_to_cull(symbol2ind_set=const_col_type2ind_set,
+                                                    num_to_cull_by_state=num_to_cull_by_state)
+
+def new_mat_by_del_paired_invariants(char_mat, p_inv):
+    '''Takes a char_mat that is assumed to be a product of evolution by the paired-invariants
+    model with a proportion of invariant sites equal to p_inv.
+    Returns a proxy for the a matrix representing the results of the free-to-vary evolution
+    by removing constant, gapless columns from char_mat.
+    '''
+    r = characterize_mat_wrt_const_gapless(char_mat)
+    num_cols, num_gap_cells, const_col_type2ind_set = r
+    num_taxa = len(char_mat)
+    est_equil_len = (num_cols*len(char_mat) - num_gap_cells)/float(num_taxa)
+    est_num_inv_columns = p_inv*est_equil_len
+    to_cull = calc_inds_to_cull(num_inv_columns=est_num_inv_columns,
+                                const_col_type2ind_set=const_col_type2ind_set)
+    to_retain = set(xrange(num_cols))
+    to_retain.difference_update(to_cull)
+    label = 'to_retain'
+    char_mat.new_character_subset(label=label, character_indices=to_retain)
     retained = char_mat.export_character_subset(character_subset=label)
     # need to remove the char subset because they are not being re-indexed.
     del retained.character_subsets[label]
-    retained.write_to_stream(sys.stdout, schema=schema)
+    return retained
 
+
+def _main(char_mat_filepath,
+          data_type_name,
+          p_inv,
+          schema='nexus'):
+    # Validate the data_type argument and use it to find the CharacterMatrix type
+    dt = data_type_name.lower()
+    mat_type = data_type_matrix_map.get(dt)
+    if mat_type is None:
+        emf = 'The data type "{u}" is not recognized.\nExpecting one of "{t}".\n'
+        k = data_type_matrix_map.keys()
+        k.sort()
+        raise ValueError(emf.format(u=data_type_name, t='", "'.join(k)))
+    # read the char matrix 
+    char_mat = mat_type.get(path=char_mat_filepath, schema=schema)
+    retained = new_mat_by_del_paired_invariants(char_mat, p_inv)
+    retained.write_to_stream(sys.stdout, schema=schema)
 
 if __name__ == '__main__':
     import argparse
